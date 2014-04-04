@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <algorithm>
 #include <vector>
+#include <fstream>
+#include <cmath>
+
+#define samv 20
 
 struct point
 {
@@ -14,24 +18,24 @@ struct point
 void binary(double* I,unsigned int nelem);
 void edge(const double* I,double *E,double *B,unsigned int sx,unsigned int sy,unsigned int dim);
 void label(const double* I,unsigned int* L,unsigned int sx,unsigned int sy,unsigned int dim);
-std::vector<point> sample(double *B,unsigned int sx,unsigned int sy);
-
+void sample(unsigned int sy,unsigned int sx,double *B);
 
 int main(int argc,char * argv[])
 {
-  char *ifname;
 
   if(argc != 2){
     printf("Input image name");
     exit(-1);
   }
 
+  char *ifname;
   double *I;
   uint8_t *_I;
   unsigned int *L;
   double *E;
   uint8_t *_E;
   double *B;
+  uint8_t *_B;
   unsigned int sy,sx,dim,mode;
   unsigned int npix,nelem;
   std::vector<point> sam;
@@ -50,12 +54,13 @@ int main(int argc,char * argv[])
 
   binary(I,nelem);
   edge(I,E,B,sx,sy,dim);
-  sam = sample(B,sx,sy);
+  sample(sy,sx,B);
   //label(E,L,sx,sy,dim);
 
   zeros(&_E,nelem,"uint8");
-  im2uint8(_E,E,nelem);
-  imwrite(_E,sy,sx,dim,mode,"../hack/hoge.pgm");
+  zeros(&_B,nelem,"uint8");
+  im2uint8(_B,B,nelem);
+  imwrite(_B,sy,sx,dim,mode,"../hack/hoge.pgm");
 
   return 0;
 }
@@ -71,46 +76,6 @@ void binary(double* I,unsigned int nelem)
   }
 }
 
-std::vector<point> sample(double *B,unsigned int sx,unsigned int sy)
-{
-  unsigned int rx = 0;
-  unsigned int ry = 0;
-  int u = 1;
-  int v = 1;
-  point p;
-  std::vector<point> sample;
-  while(ry < sy){
-    while(rx < sx){
-      if(rx == sx -1){
-        ry++;
-        u = -1;
-        v = 1;
-      }
-      else if(ry == sy -1){
-        rx++;
-        u = 1;
-        v = -1;
-      }      else if(rx == 0){
-        ry++;
-        u = 1;
-        v = -1;
-      }else if(ry == 0){
-        rx++;
-        u = -1;
-        v = 1;
-      }
-      rx += u;
-      ry += v;
-      if(B[ry * sx + rx] != 0){
-        p.x = rx;
-        p.y = ry;
-        p.z = B[ry * sx + rx];
-        sample.push_back(p);
-      }
-    }
-  }
-  return sample;
-}
 
 void edge(const double* I,double* E,double* B,unsigned int sx,unsigned int sy,unsigned int dim)
 {
@@ -119,7 +84,7 @@ void edge(const double* I,double* E,double* B,unsigned int sx,unsigned int sy,un
   unsigned int rx,ry;
   int u,v,vu,vv;
   int sam = 0;
-  int h = 0;
+  int h = 2;
   for(iy = 0;iy < sy;iy++)
   {
     pI = I + iy * sx;
@@ -212,43 +177,146 @@ void edge(const double* I,double* E,double* B,unsigned int sx,unsigned int sy,un
           ry += v;
           rx += u;
           sam++;
-          if(sam % 5 == 0){
+          if(sam % samv == 0){
             B[ry * sx + rx] = h;
           }
         }while(E[ry * sx + rx] != 1);
       }
     }
   }
+}
 
-  /*double K[9] = { 0,-1, 0,
-                 -1, 4,-1,
-                  0,-1, 0};
-  int v,u,ry = 1,rx = 1;
-  unsigned int iy,ix,iy_begin =ry,iy_end = sy - ry,ix_begin = rx,ix_end = sx - rx;
-  for(iy = iy_begin;iy < iy_end;iy++)
-  {
-    for(ix = ix_begin;ix < ix_end;ix++)
-    {
-      double sum = 0;
-      unsigned int k = 0;
-      for(v = -ry; v <= ry; v++)
-      {
-        for( u = -rx; u <= rx; u++)
-        {
-          unsigned int j = (iy + v) * sx + (ix + u);
-          sum += K[k] * I[j];
-          k++;
+void sample(unsigned int sy,unsigned int sx,double *B)
+{
+  std::ofstream of("toukou.dat");
+  int v,u;
+  sx % samv != 0 ? v = 0 : v = 1;
+  sy % samv != 0 ? u = 0 : u = 1;
+  of << ((sx/samv) + 1 - v) * ((sy/samv) + 1 - u) << std::endl;
+  of << ((sx/samv - v) * (sy/samv - u)) * 2 << std::endl;
+  unsigned int iy,ix;
+  double x,y;
+  unsigned int line = 0;
+  bool search = false;
+  unsigned int maxy,maxx;
+  double h = 1;
+  double maxh = 0;
+  for(iy = 0;iy < sy;iy++){
+    for(ix = 0;ix < sx;ix++){
+      maxy = 0;
+      maxx = 0;
+      if(ix % samv == 0 && iy % samv == 0){
+        if(ix != 0 && iy < sy - samv/2){
+          for(unsigned int i = iy;i < iy + samv/2;i++){
+            for(unsigned int j = ix - samv/2;j < ix;j++){
+              if(B[i * sx + j] != 0){
+                search = true;
+                if(B[maxy * sx + maxx] < B[i * sx + j]){
+                  if(maxx != 0 && maxy != 0){
+                    B[maxy * sx + maxx] = 0;
+                  }
+                  maxy = i;
+                  maxx = j;
+                }
+              }
+            }
+          }
         }
+        if(iy != 0 && ix < sx - samv/2){
+          for(unsigned int i = iy - samv/2;i < iy;i++){
+            for(unsigned int j = ix;j < ix + samv/2;j++){
+              if(B[i * sx + j] != 0){
+                search = true;
+                if(B[maxy * sx + maxx] < B[i * sx + j]){
+                  if(maxx != 0 && maxy != 0){
+                    B[maxy * sx + maxx] = 0;
+                  }
+                  maxy = i;
+                  maxx = j;
+                }
+              }
+            }
+          }
+        }
+        if(iy != 0 && ix != 0){
+          for(unsigned int i = iy - samv/2;i < iy;i++){
+            for(unsigned int j = ix - samv/2;j < ix;j++){
+              if(B[i * sx + j] != 0){
+                search = true;
+                if(B[maxy * sx + maxx] < B[i * sx + j]){
+                  if(maxx != 0 && maxy != 0){
+                    B[maxy * sx + maxx] = 0;
+                  }
+                  maxy = i;
+                  maxx = j;
+                }
+              }
+            }
+          }
+        }
+        if(iy < sy - samv/2 && ix < sx - samv/2){
+          for(unsigned int i = iy;i < iy + samv/2;i++){
+            for(unsigned int j = ix;j < ix + samv/2;j++){
+              if(B[i * sx + j] != 0){
+                search = true;
+                if(B[maxy * sx + maxx] < B[i * sx + j]){
+                  if(maxx != 0 && maxy != 0){
+                    B[maxy * sx + maxx] = 0;
+                  }
+                  maxy = i;
+                  maxx = j;
+                }
+              }
+            }
+          }
+        }
+        if(!search){
+          ix != 0  ? x = ix : x = 0.01;
+          iy != 0  ? y = iy : y = 0.01;
+          //if(line > 1)h--;
+          of << x/sx;
+          of.put(' ');
+          of << h/50;
+          of.put(' ');
+          of << y/sy << std::endl;
+          B[iy * sx + ix] = 1;
+          line = 0;
+        }else{
+          //if(line == 0){
+            maxh < B[maxy * sx + maxx] ? h++ : h--;
+            //}
+          maxh = h;
+          line++;
+          maxx != 0 ? x = maxx : x = 0.01;
+          maxy != 0 ? y = maxy : y = 0.01;
+          of << x/sx;
+          of.put(' ');
+          of << h/50;
+          of.put(' ');
+          of << y/sy << std::endl;
+        }
+        search = false;
       }
-      if(sum < 0){
-      sum = 0;
-      }else if(sum > 0 ){
-          sum = 1;
-      }
-      unsigned int i = iy * sx + ix;
-      E[i] = 1 - sum;
     }
-    }*/
+  }
+  for(unsigned int i = 0;i < ((sx/samv) + 1 - v) * ((sy/samv) + 1 - u);i++){
+    if(fmod(i + 1,sx/samv + !v) != 0 && i + sx/samv + 1 - v < ((sx/samv) + 1 - v) * ((sy/samv) + 1 - u)){
+      of << 3;
+      of.put(' ');
+      of << i + 1;
+      of.put(' ');
+      of << i;
+      of.put(' ');
+      of << i + sx/samv + 1 - v << std::endl;
+      of << 3;
+      of.put(' ');
+      of << i + 1;
+      of.put(' ');
+      of << i + sx/samv + 1 - v;
+      of.put(' ');
+      of << i + sx/samv + 2 - v  << std::endl;
+    }
+  }
 }
 
 
