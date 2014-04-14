@@ -6,7 +6,7 @@
 #include <fstream>
 #include <cmath>
 
-#define samv 20
+#define samv 10
 
 struct point
 {
@@ -17,8 +17,8 @@ struct point
 
 void binary(double* I,unsigned int nelem);
 void edge(const double* I,double *E,double *B,unsigned int sx,unsigned int sy,unsigned int dim);
-void label(const double* I,unsigned int* L,unsigned int sx,unsigned int sy,unsigned int dim);
 void sample(unsigned int sy,unsigned int sx,double *B);
+void label(unsigned int sy,unsigned int sx,double *B,int h);
 
 int main(int argc,char * argv[])
 {
@@ -55,7 +55,6 @@ int main(int argc,char * argv[])
   binary(I,nelem);
   edge(I,E,B,sx,sy,dim);
   sample(sy,sx,B);
-  //label(E,L,sx,sy,dim);
 
   zeros(&_E,nelem,"uint8");
   zeros(&_B,nelem,"uint8");
@@ -177,10 +176,11 @@ void edge(const double* I,double* E,double* B,unsigned int sx,unsigned int sy,un
           ry += v;
           rx += u;
           sam++;
-          if(sam % samv == 0){
+          //if(sam % samv == 0){
             B[ry * sx + rx] = h;
-          }
+            //}
         }while(E[ry * sx + rx] != 1);
+        label(sy,sx,B,h);
       }
     }
   }
@@ -196,11 +196,9 @@ void sample(unsigned int sy,unsigned int sx,double *B)
   of << ((sx/samv - v) * (sy/samv - u)) * 2 << std::endl;
   unsigned int iy,ix;
   double x,y;
-  unsigned int line = 0;
   bool search = false;
   unsigned int maxy,maxx;
   double h = 1;
-  double maxh = 0;
   for(iy = 0;iy < sy;iy++){
     for(ix = 0;ix < sx;ix++){
       maxy = 0;
@@ -273,25 +271,18 @@ void sample(unsigned int sy,unsigned int sx,double *B)
         if(!search){
           ix != 0  ? x = ix : x = 0.01;
           iy != 0  ? y = iy : y = 0.01;
-          //if(line > 1)h--;
           of << x/sx;
           of.put(' ');
           of << h/50;
           of.put(' ');
           of << y/sy << std::endl;
           B[iy * sx + ix] = 1;
-          line = 0;
         }else{
-          //if(line == 0){
-            maxh < B[maxy * sx + maxx] ? h++ : h--;
-            //}
-          maxh = h;
-          line++;
           maxx != 0 ? x = maxx : x = 0.01;
           maxy != 0 ? y = maxy : y = 0.01;
           of << x/sx;
           of.put(' ');
-          of << h/50;
+          of << B[maxy * sx + maxx]/50;
           of.put(' ');
           of << y/sy << std::endl;
         }
@@ -319,132 +310,28 @@ void sample(unsigned int sy,unsigned int sx,double *B)
   }
 }
 
-
-void label(const double* I,unsigned int* L,unsigned int sx,unsigned int sy,unsigned int dim)
+void label(unsigned int sy,unsigned int sx,double *B,int h)
 {
-  unsigned int iy,ix;
-  const unsigned int nPix = sy * sx;
-  unsigned int iReg = 0;
-  std::vector< unsigned int> Merge( nPix, 0 );
-  for(iy = 0;iy < sy; iy++)
-  {
-    const double *pI = I + iy * sx;
-    unsigned int *pL = L + iy * sx;
-    unsigned int *pC = L + (iy  - 1)* sx;
-    for(ix = 0;ix < sx;ix++)
-    {
-      if( pI[ix] == 0){continue;}
-
-      unsigned int jReg1 = 0,jReg2 = 0,jReg3  = 0,jReg4 = 0;
-      unsigned int jReg_min = nPix;
-      if(0 < iy)
-      {
-        if ( 0 < ix )
-        {
-          jReg1 = pC[ ix-1 ];
-          if ( jReg1 != 0 )
-          {
-            jReg_min = std::min( jReg_min, jReg1 );
-          }
-        }
-
-        jReg2 = pC[ ix ];
-        if ( jReg2 != 0 )
-        {
-          jReg_min = std::min( jReg_min, jReg2 );
-        }
-
-        if ( ix < sx-1 )
-        {
-          jReg3 = pC[ ix+1 ];
-          if ( jReg3 != 0 )
-          {
-            jReg_min = std::min( jReg_min, jReg3 );
-          }
+  bool search = false;
+  bool label = false;
+  unsigned int line;
+  for(unsigned int y = 0;y < sy;y++){
+    line = 0;
+    search = false;
+    for(unsigned int x = 0;x < sx;x++){
+      if(x != 0 && B[y * sx + x] > B[y * sx + x - 1] && B[y * sx + x] == h)line++;
+      if(line != 0 && line % 2 == 0)search = true;
+    }
+    if(search){
+      for(unsigned int x = 0;x < sx;x++){
+        if(!label){
+          if(B[y * sx + x] == h)label = true;
+        }else{
+          if(B[y * sx + x] == h && B[y * sx + x + 1] != B[y * sx + x])label = false;
+          B[y * sx + x] = h;
         }
       }
-
-      if  ( 0 < ix )
-      {
-        jReg4 = pL[ ix-1 ];
-        if  ( jReg4 != 0 )
-        {
-          jReg_min = std::min( jReg_min, jReg4 );
-        }
-      }
-
-      if( jReg_min != nPix )
-      {
-        pL[ ix ] = jReg_min;
-      }
-      else
-      {
-        pL[ ix ] = ++iReg;
-        Merge[ iReg ]  = iReg;
-      }
-
-      if  ( jReg1 != 0 && jReg_min <= Merge[ jReg1 ] ){ Merge[ jReg1 ] = jReg_min; }
-      if  ( jReg2 != 0 && jReg_min <= Merge[ jReg2 ] ){ Merge[ jReg2 ] = jReg_min; }
-      if  ( jReg3 != 0 && jReg_min <= Merge[ jReg3 ] ){ Merge[ jReg3 ] = jReg_min; }
-      if  ( jReg4 != 0 && jReg_min <= Merge[ jReg4 ] ){ Merge[ jReg4 ] = jReg_min; }
-
+      label = false;
     }
   }
-  for ( unsigned int   i = 0; i < nPix; ++i )
-  {
-    unsigned int   idx;
-    unsigned int   idx_parent;
-
-    idx_parent = Merge[ i ];
-
-    if      ( idx_parent == 0 ) continue;
-    else if ( idx_parent == i ) continue;
-
-    for ( unsigned int   j = 0; j < nPix; ++j )
-    {
-      idx = idx_parent;
-      idx_parent = Merge[ idx ];
-
-      if ( idx_parent == idx )
-      {
-        Merge[ i ] = idx_parent;
-        break;
-      }
-    }
-  }
-
-  {
-    std::vector< unsigned int   > Order( nPix, 0 );
-
-    unsigned int   idx,  idx_new,  count=0;
-
-    for ( unsigned int   i = 0; i < nPix; ++i )
-    {
-      idx = Merge[ i ];
-      if ( idx == 0 ) continue;
-
-      idx_new = Order[ idx ];
-
-      if ( idx_new == 0 )
-      {
-        Order[ idx ] = ++count;
-        idx_new = count;
-      }
-
-      Merge[ i ] = idx_new;
-    }
-  }
-
-  for ( iy = 0; iy < sy; ++iy )
-  {
-    unsigned int  *pL = L + iy*sx;
-    for  ( ix = 0; ix < sx; ++ix )
-    {
-      unsigned int  *p = &pL[ ix ];
-      *p = Merge[ (int)*p ];
-    }
-  }
-
 }
-
-
